@@ -5,7 +5,7 @@ log_error() {
 }
 
 show_usage() {
-  echo "Usage: ssh-execute [-h] [-p port] [-i identity_file] <destination> <action> [<args>]"
+  echo "Usage: ssh-execute [-h] [-p port] [-i identity_file] <destination|_> <action> [<args>]"
   if [[ -n "$1" ]]; then
     exit $1
   fi
@@ -23,8 +23,10 @@ show_usage() {
   echo "        Download the file from the remote host."
   echo
   echo "The destination may be specified as [user@]host. If no user specified, 'root' will be used."
+  echo "If the destination is '_', the environment variable 'SSH_EXECUTE_DEFAULT_DESTINATION' will be used."
   echo
-  echo "The arguments as follow can be specified by global variables:"
+  echo "The arguments as follow can be specified by environment variables:"
+  echo "    destination: SSH_EXECUTE_DEFAULT_DESTINATION"
   echo "    user: SSH_EXECUTE_DEFAULT_USER"
   echo "    port: SSH_EXECUTE_DEFAULT_PORT"
   echo "    identity_file: SSH_EXECUTE_DEFAULT_IDENTITY_FILE"
@@ -59,13 +61,16 @@ DESTINATION=$1
 ACTION=$2
 shift 2
 
+if [[ "$DESTINATION" = "_" ]]; then
+  DESTINATION="$SSH_EXECUTE_DEFAULT_DESTINATION"
+fi
 if [[ -z "$DESTINATION" ]]; then
-  log_error "The destination MUST be specified!"
+  log_error "No destination specified!"
   show_usage 1
 fi
 
 if [[ -z "$ACTION" ]]; then
-  log_error "The action MUST be specified!"
+  log_error "No action specified!"
   show_usage 1
 fi
 
@@ -83,7 +88,7 @@ if [[ -n "$IDENTITY_FILE" ]]; then
   IDENTITY_PARAM="-i $IDENTITY_FILE"
 fi
 
-EXECUTE_HINT="$(date "+%Y-%m-%d %H:%M:%S") $REMOTE_USER@$HOST"
+EXECUTE_HINT="$(date "+%Y-%m-%d %H:%M:%S") $REMOTE_USER@$HOST:"
 
 get_port_param() {
   if [[ -n "$PORT" ]]; then
@@ -92,8 +97,8 @@ get_port_param() {
 }
 
 exec_download() {
-  local remote_file=$1
-  if [[ -z "$remote_file" ]]; then
+  local file=$1
+  if [[ -z "$file" ]]; then
     log_error "No file specified!"
     return
   fi
@@ -101,8 +106,8 @@ exec_download() {
   if [[ -z "$local_dir" ]]; then
     local_dir="."
   fi
-  echo Downloading...
-  time scp $(get_port_param -P) $IDENTITY_PARAM $REMOTE_USER@$HOST:"$remote_file" "$local_dir"
+  echo "$EXECUTE_HINT Download $file to $local_dir"
+  scp $(get_port_param -P) $IDENTITY_PARAM $REMOTE_USER@$HOST:"$file" "$local_dir"
 }
 
 exec_upload() {
@@ -112,8 +117,8 @@ exec_upload() {
     return
   fi
   local remote_dir=$2
-  echo Uploading...
-  time scp $(get_port_param -P) $IDENTITY_PARAM "$file" $REMOTE_USER@$HOST:"$remote_dir"
+  echo "$EXECUTE_HINT Upload $file to $remote_dir"
+  scp $(get_port_param -P) $IDENTITY_PARAM "$file" $REMOTE_USER@$HOST:"$remote_dir"
 }
 
 exec_script() {
@@ -122,7 +127,7 @@ exec_script() {
     log_error "No script file specified!"
     return
   fi
-  echo "$EXECUTE_HINT \$ $*"
+  echo "$EXECUTE_HINT \$ bash $*"
   shift
   ssh $(get_port_param -p) $IDENTITY_PARAM $REMOTE_USER@$HOST "bash -s" "$@" <"$file"
 }
