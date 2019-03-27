@@ -5,31 +5,33 @@ log_error() {
 }
 
 show_usage() {
-  echo "Usage: ssh-execute [-h] [-p port] [-i identity_file] <destination|_> <action> [<args>]"
+  echo
+  echo "Usage: ${0##*/} [-h] [-p port] [-i identity_file] <destination|_> <action> [<args>]"
   if [[ -n "$1" ]]; then
     exit $1
   fi
-  echo
-  echo "Option '-h': Show this usage."
-  echo
-  echo "These are actions supported:"
-  echo "    cmd <command> [args]"
-  echo "        Execute the command on the remote host."
-  echo "    script <bash_script_file> [args]"
-  echo "        Execute the bash script on the remote host."
-  echo "    upload <local_file> [remote_dir]"
-  echo "        Upload the file to the remote host."
-  echo "    download <remote_file> [local_dir]"
-  echo "        Download the file from the remote host."
-  echo
-  echo "The destination may be specified as [user@]host. If no user specified, 'root' will be used."
-  echo "If the destination is '_', the environment variable 'SSH_EXECUTE_DEFAULT_DESTINATION' will be used."
-  echo
-  echo "The arguments as follow can be specified by environment variables:"
-  echo "    destination: SSH_EXECUTE_DEFAULT_DESTINATION"
-  echo "    user: SSH_EXECUTE_DEFAULT_USER"
-  echo "    port: SSH_EXECUTE_DEFAULT_PORT"
-  echo "    identity_file: SSH_EXECUTE_DEFAULT_IDENTITY_FILE"
+  echo "
+These are actions supported:
+    cmd <command> [args]
+        Execute the command on the remote host.
+    script <bash_script_file> [args]
+        Execute the bash script on the remote host.
+    upload <local_file> [remote_dir]
+        Upload the file to the remote host.
+    download <remote_file> [local_dir]
+        Download the file from the remote host.
+
+The destination may be specified as [user@]host. If no user specified, 'root' will be used.
+If the destination is '_', the environment variable 'SSH_EXECUTE_DEFAULT_DESTINATION' will be used.
+
+The arguments as follow can be specified by environment variables:
+    destination: SSH_EXECUTE_DEFAULT_DESTINATION
+    user: SSH_EXECUTE_DEFAULT_USER
+    port: SSH_EXECUTE_DEFAULT_PORT
+    identity_file: SSH_EXECUTE_DEFAULT_IDENTITY_FILE
+
+Option '-h': Show this usage.
+"
 }
 
 PORT="$SSH_EXECUTE_DEFAULT_PORT"
@@ -61,7 +63,7 @@ DESTINATION=$1
 ACTION=$2
 shift 2
 
-if [[ "$DESTINATION" = "_" ]]; then
+if [[ "$DESTINATION" == "_" ]]; then
   DESTINATION="$SSH_EXECUTE_DEFAULT_DESTINATION"
 fi
 if [[ -z "$DESTINATION" ]]; then
@@ -117,7 +119,11 @@ exec_upload() {
     return
   fi
   local remote_dir=$2
-  echo "$EXECUTE_HINT Upload $file to $remote_dir"
+  local remote_dir_desc=$remote_dir
+  if [[ -z "$remote_dir_desc" ]]; then
+    remote_dir_desc="~"
+  fi
+  echo "$EXECUTE_HINT Upload $file to $remote_dir_desc"
   scp $(get_port_param -P) $IDENTITY_PARAM "$file" $REMOTE_USER@$HOST:"$remote_dir"
 }
 
