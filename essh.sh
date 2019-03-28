@@ -25,17 +25,17 @@ The destination may be specified as [user@]host. If no user specified, 'root' wi
 If the destination is '_', the environment variable 'SSH_EXECUTE_DEFAULT_DESTINATION' will be used.
 
 The arguments as follow can be specified by environment variables:
-    destination: SSH_EXECUTE_DEFAULT_DESTINATION
-    user: SSH_EXECUTE_DEFAULT_USER
-    port: SSH_EXECUTE_DEFAULT_PORT
-    identity_file: SSH_EXECUTE_DEFAULT_IDENTITY_FILE
+    destination: ESSH_DEFAULT_DESTINATION
+    user: ESSH_DEFAULT_USER
+    port: ESSH_DEFAULT_PORT
+    identity_file: ESSH_DEFAULT_IDENTITY_FILE
 
 Option '-h': Show this usage.
 "
 }
 
-PORT="$SSH_EXECUTE_DEFAULT_PORT"
-IDENTITY_FILE="$SSH_EXECUTE_DEFAULT_IDENTITY_FILE"
+PORT="$ESSH_DEFAULT_PORT"
+IDENTITY_FILE="$ESSH_DEFAULT_IDENTITY_FILE"
 while (($#)); do
   case "$1" in
     -p)
@@ -64,7 +64,7 @@ ACTION=$2
 shift 2
 
 if [[ "$DESTINATION" == "_" ]]; then
-  DESTINATION="$SSH_EXECUTE_DEFAULT_DESTINATION"
+  DESTINATION="$ESSH_DEFAULT_DESTINATION"
 fi
 if [[ -z "$DESTINATION" ]]; then
   log_error "No destination specified!"
@@ -78,7 +78,7 @@ fi
 
 REMOTE_USER=$(cut -s -d"@" -f1 <<<"$DESTINATION")
 if [[ -z "$REMOTE_USER" ]]; then
-  REMOTE_USER="$SSH_EXECUTE_DEFAULT_USER"
+  REMOTE_USER="$ESSH_DEFAULT_USER"
 fi
 if [[ -z "$REMOTE_USER" ]]; then
   REMOTE_USER=root
