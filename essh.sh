@@ -28,14 +28,14 @@ The arguments as follow can be specified by environment variables:
     destination: ESSH_DEFAULT_DESTINATION
     user: ESSH_DEFAULT_USER
     port: ESSH_DEFAULT_PORT
-    identity_file: ESSH_DEFAULT_IDENTITY_FILE
+    identity_file: ESSH_DEFAULT_IDENTITY
 
 Option '-h': Show this usage.
 "
 }
 
 PORT="$ESSH_DEFAULT_PORT"
-IDENTITY_FILE="$ESSH_DEFAULT_IDENTITY_FILE"
+IDENTITY_FILE="$ESSH_DEFAULT_IDENTITY"
 while (($#)); do
   case "$1" in
     -p)
