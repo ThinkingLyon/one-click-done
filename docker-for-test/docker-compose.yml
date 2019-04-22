@@ -1,0 +1,16 @@
+version: '3'
+
+services:
+  centos6:
+    image: centos:6
+    container_name: one-click-done-centos6
+    command: tail -f /dev/null
+    volumes:
+    - ./.cache:/cache
+
+  ubuntu:
+    image: ubuntu:latest
+    container_name: one-click-done-ubuntu
+    command: tail -f /dev/null
+    volumes:
+    - ./.cache:/cache

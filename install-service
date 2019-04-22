@@ -1,0 +1,259 @@
+#!/usr/bin/env bash
+
+log_error() {
+  echo "$@" >&2
+}
+
+show_usage() {
+  echo "Usage: ${0##*/} [-w|--work-dir work_dir] [-u|--run-user user] [-k|--kill-tree] [-h] <service_name> <daemon> [daemon-args]"
+  [[ -n "$1" ]] && exit $1
+}
+
+while (($#)); do
+  case "$1" in
+    -w | --work-dir)
+      WORK_DIR=$2
+      shift 2
+      ;;
+    -u | --run-user)
+      RUN_USER=$2
+      shift 2
+      ;;
+    -k | --kill-tree)
+      KILL_TREE=true
+      shift 1
+      ;;
+    -h | --help)
+      show_usage
+      exit
+      ;;
+    -* | --*)
+      log_error "Unknown flag: $1"
+      exit 1
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+SERVICE_NAME=$1
+DAEMON=$2
+shift 2
+DAEMON_ARGS="$*"
+
+[[ -z "${SERVICE_NAME}" ]] && log_error "No service name specified!" && show_usage 1
+[[ -z "${DAEMON}" ]] && log_error "No daemon specified!" && show_usage 1
+
+_DAEMON="$(which "${DAEMON}")"
+[[ -z "${_DAEMON}" ]] && _DAEMON="$(which $(pwd)/${DAEMON})"
+[[ -z "${_DAEMON}" ]] && log_error "The daemon '${DAEMON}' not found!" && exit 1
+test ! -x "${_DAEMON}" && log_error "The daemon '${DAEMON}' not found!" >&2 && exit 1
+DAEMON="${_DAEMON}"
+
+[[ -z "${WORK_DIR}" ]] && WORK_DIR=$(pwd)
+
+echo "Install service:"
+echo "    SERVICE_NAME = ${SERVICE_NAME}"
+echo "    DAEMON = ${DAEMON}"
+[[ -n "${DAEMON_ARGS}" ]] && echo "    DAEMON_ARGS = ${DAEMON_ARGS}"
+[[ -n "${WORK_DIR}" ]] && echo "    WORK_DIR = ${WORK_DIR}"
+[[ -n "${RUN_USER}" ]] && echo "    RUN_USER = ${RUN_USER}"
+
+INIT_FILE=/etc/init.d/${SERVICE_NAME}
+which sudo > /dev/null 2>&1 && SUDO=sudo
+
+TMP_FILE=$(mktemp)
+cat >"${TMP_FILE}" <<EOT
+#!/bin/bash
+### BEGIN INIT INFO
+# Provides:          ${SERVICE_NAME}
+# Required-Start:    \$remote_fs \$network \$syslog
+# Required-Stop:     \$remote_fs \$network \$syslog
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: ${SERVICE_NAME}
+# Description:       ${SERVICE_NAME}
+# chkconfig:         2345 99 01
+### END INIT INFO
+
+[[ -n "\$DEBUG" ]] && set -x
+
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+SERVICE_NAME="${SERVICE_NAME}"
+DAEMON="${DAEMON}"
+DAEMON_ARGS=(${DAEMON_ARGS})
+WORK_DIR="${WORK_DIR}"
+RUN_USER="${RUN_USER}"
+LOG_FILE="\$(date +%Y-%m-%d).log"
+PID_FILE="${WORK_DIR}/\${SERVICE_NAME}.pid"
+STOP_WAIT_TIME=60
+KILL_TREE=${KILL_TREE}
+
+[[ -z "\${WORK_DIR}" ]] && WORK_DIR=\$(dirname \$DAEMON)
+
+cd \${WORK_DIR}
+
+# Gracefully exit if the daemon has been removed.
+test ! -x "\${DAEMON}" && echo "The daemon '\${DAEMON}' not found!" >&2 && exit 1
+
+# ANSI Colors
+echo_red() { echo $'\e[0;31m'"\$1"$'\e[0m'; }
+echo_green() { echo $'\e[0;32m'"\$1"$'\e[0m'; }
+echo_yellow() { echo $'\e[0;33m'"\$1"$'\e[0m'; }
+
+# Utility functions
+check_permissions() {
+  touch "\$PID_FILE" &> /dev/null || { echo_red "Operation not permitted (cannot access pid file)"; return 4; }
+  touch "\$LOG_FILE" &> /dev/null || { echo_red "Operation not permitted (cannot access log file)"; return 4; }
+}
+
+is_running() {
+  ps -p "\$1" &> /dev/null
+}
+
+await_file() {
+  end=\$(date +%s)
+  let "end+=10"
+  while [[ ! -s "\$1" ]]
+  do
+    now=\$(date +%s)
+    if [[ \$now -ge \$end ]]; then
+      break
+    fi
+    sleep 1
+  done
+}
+
+do_kill() {
+    local _pid=\$1
+    local _sig=\${2-TERM}
+    if [[ "\${KILL_TREE}" = "true" ]]; then
+        for _child in \$(ps -o pid --no-headers --ppid \${_pid}); do
+            do_kill \${_child} \${_sig}
+        done
+    fi
+    kill -\${_sig} \${_pid}
+    return \$?
+}
+
+# Action functions
+do_start() {
+  if [[ -n "\$RUN_USER" ]]; then
+    check_permissions || return \$?
+    if which start-stop-daemon > /dev/null 2>&1; then
+      start-stop-daemon --start --quiet \
+        --chuid "\$RUN_USER" \
+        --make-pidfile --pidfile "\$PID_FILE" \
+        --background --no-close \
+        --startas "\${DAEMON}" \
+        --chdir "\${WORK_DIR}" \
+        -- "\${DAEMON_ARGS[@]}" \
+        >> "\${LOG_FILE}" 2>&1
+      await_file "\$PID_FILE"
+    else
+      su -s /bin/sh -c "\$DAEMON \$(printf "\"%s\" " "\${DAEMON_ARGS[@]}") >> \"\$LOG_FILE\" 2>&1 & echo \$!" "\$RUN_USER" > "\$PID_FILE"
+    fi
+    pid=\$(cat "\$PID_FILE")
+  else
+    check_permissions || return \$?
+    "\$DAEMON" "\${DAEMON_ARGS[@]}" >> "\$LOG_FILE" 2>&1 &
+    pid=\$!
+    disown \$pid
+    echo "\$pid" > "\$PID_FILE"
+  fi
+  [[ -z \$pid ]] && { echo_red "Failed to start"; return 1; }
+  echo_green "Started [\$pid]"
+}
+
+do_stop() {
+  local _sig=\${3-TERM}
+  do_kill "\$1" \${_sig} &> /dev/null || { echo_red "Unable to kill process \$1"; return 1; }
+  for i in \$(seq 1 \$STOP_WAIT_TIME); do
+    is_running "\$1" || { echo_green "Stopped [\$1]"; rm -f "\$2"; return 0; }
+    [[ \$i -eq STOP_WAIT_TIME/2 ]] && kill "\$1" &> /dev/null
+    sleep 1
+  done
+  echo_red "Unable to kill process \$1";
+  return 1;
+}
+
+start() {
+  if [[ -f "\$PID_FILE" ]]; then
+    pid=\$(cat "\$PID_FILE")
+    is_running "\$pid" && { echo_yellow "Already running [\$pid]"; return 0; }
+  fi
+  do_start "\$@"
+}
+
+stop() {
+  pushd "\$WORK_DIR" > /dev/null
+  [[ -f \$PID_FILE ]] || { echo_yellow "Not running (pidfile not found)"; return 0; }
+  pid=\$(cat "\$PID_FILE")
+  is_running "\$pid" || { echo_yellow "Not running (process \${pid}). Removing stale pid file."; rm -f "\$PID_FILE"; return 0; }
+  do_stop "\$pid" "\$PID_FILE" "\$1"
+}
+
+restart() {
+  stop && start
+}
+
+force_stop() {
+  stop KILL
+}
+
+force_reload() {
+  pushd "\$WORK_DIR" > /dev/null
+  [[ -f \$PID_FILE ]] || { echo_red "Not running (pidfile not found)"; return 7; }
+  pid=\$(cat "\$PID_FILE")
+  rm -f "\$PID_FILE"
+  is_running "\$pid" || { echo_red "Not running (process \${pid} not found)"; return 7; }
+  do_stop "\$pid" "\$PID_FILE"
+  do_start
+}
+
+status() {
+  pushd "\$WORK_DIR" > /dev/null
+  [[ -f "\$PID_FILE" ]] || { echo_red "Not running"; return 3; }
+  pid=\$(cat "\$PID_FILE")
+  is_running "\$pid" || { echo_red "Not running (process \${pid} not found)"; return 1; }
+  echo_green "Running [\$pid]"
+  return 0
+}
+
+# Call the appropriate action function
+action="\$1"
+shift
+case "\$action" in
+start)
+  start "\$@"; exit \$?;;
+stop)
+  stop "\$@"; exit \$?;;
+force-stop)
+  force_stop "\$@"; exit \$?;;
+restart)
+  restart "\$@"; exit \$?;;
+force-reload)
+  force_reload "\$@"; exit \$?;;
+status)
+  status "\$@"; exit \$?;;
+run)
+  run "\$@"; exit \$?;;
+*)
+  echo "Usage: \$0 {start|stop|force-stop|restart|force-reload|status}"; exit 1;
+esac
+
+exit 0
+EOT
+
+${SUDO} cp -f "${TMP_FILE}" "${INIT_FILE}"
+rm -f "${TMP_FILE}"
+${SUDO} chmod 755 ${INIT_FILE}
+${SUDO} which update-rc.d > /dev/null 2>&1 && ${SUDO} update-rc.d ${SERVICE_NAME} defaults
+${SUDO} which chkconfig > /dev/null 2>&1 && ${SUDO} chkconfig --level 345 ${SERVICE_NAME} on
+${SUDO} which systemctl > /dev/null 2>&1 && ${SUDO} systemctl daemon-reload
+echo "Service '${SERVICE_NAME}' installed."
+if ${SUDO} which service > /dev/null 2>&1; then
+    ${SUDO} service ${SERVICE_NAME} restart
+else
+    ${SUDO} /etc/init.d/${SERVICE_NAME} restart
+fi

@@ -6,12 +6,10 @@ log_error() {
 
 show_usage() {
   echo
-  echo "Usage: ${0##*/} [-h] [-p port] [-i identity_file] <destination|_> <action> [<args>]"
-  if [[ -n "$1" ]]; then
-    exit $1
-  fi
+  echo "Usage: ${0##*/} [-h] [-p port] [-i identity_file] <destination|_> <action> [<args>]" >&2
+  [[ -n "$1" ]] && exit $1
   echo "
-These are actions supported:
+These are supported actions:
     cmd <command> [args]
         Execute the command on the remote host.
     script <bash_script_file> [args]
@@ -22,7 +20,7 @@ These are actions supported:
         Download the file from the remote host.
 
 The destination may be specified as [user@]host. If no user specified, 'root' will be used.
-If the destination is '_', the environment variable 'SSH_EXECUTE_DEFAULT_DESTINATION' will be used.
+If the destination is '_', the environment variable 'ESSH_DEFAULT_DESTINATION' will be used.
 
 The arguments as follow can be specified by environment variables:
     destination: ESSH_DEFAULT_DESTINATION
@@ -31,7 +29,7 @@ The arguments as follow can be specified by environment variables:
     identity_file: ESSH_DEFAULT_IDENTITY
 
 Option '-h': Show this usage.
-"
+" >&2
 }
 
 PORT="$ESSH_DEFAULT_PORT"
@@ -108,7 +106,7 @@ exec_download() {
   if [[ -z "$local_dir" ]]; then
     local_dir="."
   fi
-  echo "$EXECUTE_HINT Download $file to $local_dir"
+  echo "$EXECUTE_HINT Download \"$file\" to \"$local_dir\""
   scp $(get_port_param -P) $IDENTITY_PARAM $REMOTE_USER@$HOST:"$file" "$local_dir"
 }
 
@@ -123,7 +121,7 @@ exec_upload() {
   if [[ -z "$remote_dir_desc" ]]; then
     remote_dir_desc="~"
   fi
-  echo "$EXECUTE_HINT Upload $file to $remote_dir_desc"
+  echo "$EXECUTE_HINT Upload \"$file to $remote_dir_desc\""
   scp $(get_port_param -P) $IDENTITY_PARAM "$file" $REMOTE_USER@$HOST:"$remote_dir"
 }
 
@@ -135,7 +133,7 @@ exec_script() {
   fi
   echo "$EXECUTE_HINT \$ bash $*"
   shift
-  ssh $(get_port_param -p) $IDENTITY_PARAM $REMOTE_USER@$HOST "bash -s" "$@" <"$file"
+  ssh $(get_port_param -p) $IDENTITY_PARAM $REMOTE_USER@$HOST "bash -s" -- "$@" <"$file"
 }
 
 exec_cmd() {
