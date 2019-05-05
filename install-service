@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+
 log_error() {
   echo "$@" >&2
 }
 
 show_usage() {
-  echo "Usage: ${0##*/} [-w|--work-dir work_dir] [-u|--run-user user] [-k|--kill-tree] [-h] <service_name> <daemon> [daemon-args]"
+  echo "Usage: ${0##*/} [-w|--work-dir work_dir] [-u|--run-user user] [-k|--kill-tree] [-l|--logrotate] [-h] <service_name> <daemon> [daemon-args]"
   [[ -n "$1" ]] && exit $1
 }
 
@@ -20,7 +22,11 @@ while (($#)); do
       shift 2
       ;;
     -k | --kill-tree)
-      KILL_TREE=true
+      KILL_TREE=yes
+      shift 1
+      ;;
+    -l | --logrotate)
+      LOGROTATE=yes
       shift 1
       ;;
     -h | --help)
@@ -54,12 +60,13 @@ DAEMON="${_DAEMON}"
 
 echo "Install service:"
 echo "    SERVICE_NAME = ${SERVICE_NAME}"
+echo "    WORK_DIR = ${WORK_DIR}"
 echo "    DAEMON = ${DAEMON}"
 [[ -n "${DAEMON_ARGS}" ]] && echo "    DAEMON_ARGS = ${DAEMON_ARGS}"
-[[ -n "${WORK_DIR}" ]] && echo "    WORK_DIR = ${WORK_DIR}"
 [[ -n "${RUN_USER}" ]] && echo "    RUN_USER = ${RUN_USER}"
+[[ -n "${KILL_TREE}" ]] && echo "    KILL_TREE = ${KILL_TREE}"
+[[ -n "${LOGROTATE}" ]] && echo "    LOGROTATE = ${LOGROTATE}"
 
-INIT_FILE=/etc/init.d/${SERVICE_NAME}
 which sudo > /dev/null 2>&1 && SUDO=sudo
 
 TMP_FILE=$(mktemp)
@@ -84,10 +91,11 @@ DAEMON="${DAEMON}"
 DAEMON_ARGS=(${DAEMON_ARGS})
 WORK_DIR="${WORK_DIR}"
 RUN_USER="${RUN_USER}"
-LOG_FILE="\$(date +%Y-%m-%d).log"
-PID_FILE="${WORK_DIR}/\${SERVICE_NAME}.pid"
-STOP_WAIT_TIME=60
 KILL_TREE=${KILL_TREE}
+
+LOG_FILE="\${SERVICE_NAME}.log"
+PID_FILE="\${WORK_DIR}/\${SERVICE_NAME}.pid"
+STOP_WAIT_TIME=60
 
 [[ -z "\${WORK_DIR}" ]] && WORK_DIR=\$(dirname \$DAEMON)
 
@@ -127,7 +135,7 @@ await_file() {
 do_kill() {
     local _pid=\$1
     local _sig=\${2-TERM}
-    if [[ "\${KILL_TREE}" = "true" ]]; then
+    if [[ "\${KILL_TREE}" = "yes" ]]; then
         for _child in \$(ps -o pid --no-headers --ppid \${_pid}); do
             do_kill \${_child} \${_sig}
         done
@@ -244,10 +252,11 @@ esac
 
 exit 0
 EOT
-
+INIT_FILE=/etc/init.d/${SERVICE_NAME}
 ${SUDO} cp -f "${TMP_FILE}" "${INIT_FILE}"
+${SUDO} chmod 755 "${INIT_FILE}"
 rm -f "${TMP_FILE}"
-${SUDO} chmod 755 ${INIT_FILE}
+
 ${SUDO} which update-rc.d > /dev/null 2>&1 && ${SUDO} update-rc.d ${SERVICE_NAME} defaults
 ${SUDO} which chkconfig > /dev/null 2>&1 && ${SUDO} chkconfig --level 345 ${SERVICE_NAME} on
 ${SUDO} which systemctl > /dev/null 2>&1 && ${SUDO} systemctl daemon-reload
@@ -256,4 +265,32 @@ if ${SUDO} which service > /dev/null 2>&1; then
     ${SUDO} service ${SERVICE_NAME} restart
 else
     ${SUDO} /etc/init.d/${SERVICE_NAME} restart
+fi
+
+setup_logrotate(){
+    ${SUDO} which logrotate > /dev/null 2>&1 || { echo "The utility \"logrotate\" not found!"; return 1; }
+
+    TMP_FILE=$(mktemp)
+    cat >"${TMP_FILE}" <<EOT
+${WORK_DIR}/*.log {
+  rotate 8
+  weekly
+  size 1M
+  missingok
+  notifempty
+  copytruncate
+  dateext
+  extension .log
+}
+EOT
+    LOGROTATE_FILE="/etc/logrotate.d/${SERVICE_NAME}"
+    ${SUDO} cp -f "${TMP_FILE}" "${LOGROTATE_FILE}"
+    ${SUDO} chmod a+r "${LOGROTATE_FILE}"
+    rm -f "${TMP_FILE}"
+    echo "Setup logrotate:"
+    cat "${LOGROTATE_FILE}"
+}
+
+if [[ "${LOGROTATE}" = "yes" ]]; then
+    setup_logrotate
 fi
