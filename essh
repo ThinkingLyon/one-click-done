@@ -6,7 +6,7 @@ log_error() {
 
 show_usage() {
   echo
-  echo "Usage: ${0##*/} [-h] [-p port] [-i identity_file] <destination|_> <action> [<args>]" >&2
+  echo "Usage: ${0##*/} [-h] [-q] [-p port] [-i identity_file] <destination|_> <action> [<args>]" >&2
   [[ -n "$1" ]] && exit $1
   echo "
 These are supported actions:
@@ -43,6 +43,10 @@ while (($#)); do
     -i)
       IDENTITY_FILE=$2
       shift 2
+      ;;
+    -q)
+      QUIET=true
+      shift
       ;;
     -h)
       show_usage
@@ -106,7 +110,7 @@ exec_download() {
   if [[ -z "$local_dir" ]]; then
     local_dir="."
   fi
-  echo "$EXECUTE_HINT Download \"$file\" to \"$local_dir\""
+  [[ -z "${QUIET}" ]] && echo "$EXECUTE_HINT Download \"$file\" to \"$local_dir\""
   scp $(get_port_param -P) $IDENTITY_PARAM $REMOTE_USER@$HOST:"$file" "$local_dir"
 }
 
@@ -121,7 +125,7 @@ exec_upload() {
   if [[ -z "$remote_dir_desc" ]]; then
     remote_dir_desc="~"
   fi
-  echo "$EXECUTE_HINT Upload \"$file to $remote_dir_desc\""
+  [[ -z "${QUIET}" ]] && echo "$EXECUTE_HINT Upload \"$file\" to \"$remote_dir_desc\""
   scp $(get_port_param -P) $IDENTITY_PARAM "$file" $REMOTE_USER@$HOST:"$remote_dir"
 }
 
@@ -131,7 +135,7 @@ exec_script() {
     log_error "No script file specified!"
     return
   fi
-  echo "$EXECUTE_HINT \$ bash $*"
+  [[ -z "${QUIET}" ]] && echo "$EXECUTE_HINT \$ bash $*"
   shift
   ssh $(get_port_param -p) $IDENTITY_PARAM $REMOTE_USER@$HOST "bash -s" -- "$@" <"$file"
 }
@@ -141,7 +145,7 @@ exec_cmd() {
     log_error "No command specified!"
     return
   fi
-  echo "$EXECUTE_HINT \$ $*"
+  [[ -z "${QUIET}" ]] && echo "$EXECUTE_HINT \$ $*"
   ssh $(get_port_param -p) $IDENTITY_PARAM $REMOTE_USER@$HOST "$@"
 }
 
